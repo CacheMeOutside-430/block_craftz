@@ -1,0 +1,149 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b0f12;
+  color: #f4f7fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr minmax(220px, 280px);
+  grid-template-rows: auto 1fr auto;
+  padding: 14px;
+  gap: 12px;
+}
+
+.panel {
+  pointer-events: auto;
+  background: rgba(8, 13, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.stats {
+  grid-column: 1;
+  grid-row: 1;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.toolbar {
+  grid-column: 2;
+  grid-row: 3;
+  justify-self: center;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  max-width: calc(100vw - 32px);
+  overflow: auto hidden;
+}
+
+.slot {
+  min-width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f8fb;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.slot.active {
+  border-color: #9ee6b7;
+  box-shadow: inset 0 0 0 1px #9ee6b7;
+}
+
+.reticle {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.reticle::before,
+.reticle::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.86);
+  border-radius: 1px;
+}
+
+.reticle::before {
+  width: 16px;
+  height: 2px;
+  left: 0;
+  top: 7px;
+}
+
+.reticle::after {
+  width: 2px;
+  height: 16px;
+  left: 7px;
+  top: 0;
+}
+
+.notice {
+  grid-column: 3;
+  grid-row: 1;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+button.icon {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-radius: 6px;
+}
+
+@media (max-width: 760px) {
+  .hud {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .notice {
+    display: none;
+  }
+
+  .stats {
+    max-width: min(320px, calc(100vw - 28px));
+  }
+
+  .toolbar {
+    grid-column: 1;
+  }
+}

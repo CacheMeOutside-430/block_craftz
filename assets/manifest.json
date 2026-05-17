@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "atlases": {
+    "blocks": {
+      "tileSize": 16,
+      "columns": 8,
+      "generated": true
+    }
+  },
+  "audio": [],
+  "models": []
+}
