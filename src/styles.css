@@ -65,6 +65,7 @@ canvas {
 .slot {
   min-width: 46px;
   height: 46px;
+  position: relative;
   display: grid;
   place-items: center;
   border-radius: 6px;
@@ -73,6 +74,20 @@ canvas {
   color: #f5f8fb;
   font-weight: 700;
   font-size: 11px;
+}
+
+.slot-label {
+  max-width: 40px;
+  overflow: hidden;
+}
+
+.slot-count {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 11px;
+  color: #ffffff;
+  text-shadow: 0 1px 2px #000;
 }
 
 .slot.active {

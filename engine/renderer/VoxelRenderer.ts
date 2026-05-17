@@ -14,7 +14,7 @@ interface ChunkObjects {
 export class VoxelRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(72, 1, 0.05, 1200);
+  readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1200);
   private readonly mesher: GreedyMesher;
   private readonly worldGroup = new THREE.Group();
   private readonly chunks = new Map<string, ChunkObjects>();
@@ -26,7 +26,8 @@ export class VoxelRenderer {
     new THREE.LineBasicMaterial({ color: 0x111111, linewidth: 2 })
   );
   private readonly viewModel = new THREE.Group();
-  private readonly heldItem = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), new THREE.MeshLambertMaterial());
+  private readonly heldBlock = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), new THREE.MeshLambertMaterial());
+  private readonly pickaxe = new THREE.Group();
   private readonly playerBody = new THREE.Mesh(
     new THREE.BoxGeometry(0.66, 1.8, 0.66),
     new THREE.MeshLambertMaterial({ color: 0x3f7fb5, transparent: true, opacity: 0.42 })
@@ -120,14 +121,19 @@ export class VoxelRenderer {
   }
 
   updateViewModel(blockId: number, movingAmount: number, interacting: boolean): void {
-    const block = this.registry.get(blockId);
-    const material = this.heldItem.material as THREE.MeshLambertMaterial;
-    material.color.set(block.color);
-    const bob = Math.sin(this.frame * 0.18) * 0.018 * movingAmount;
-    const swing = interacting ? Math.sin(Math.min(1, movingAmount + 0.6) * this.frame * 0.5) * 0.08 : 0;
-    this.viewModel.position.set(0.46 + swing, -0.42 + bob, -0.76);
-    this.viewModel.rotation.set(-0.28 + bob * 2, -0.38 + swing, 0.12);
-    this.viewModel.visible = blockId !== 0;
+    const bob = Math.sin(this.frame * 0.26) * 0.026 * movingAmount;
+    const stride = Math.sin(this.frame * 0.52) * 0.018 * movingAmount;
+    const swing = interacting ? Math.sin(Math.min(1, movingAmount + 0.72) * this.frame * 0.72) * 0.16 : 0;
+    this.viewModel.position.set(0.45 + swing * 0.45, -0.42 + bob, -0.78 + stride);
+    this.viewModel.rotation.set(-0.28 + bob * 2.2 - swing * 0.45, -0.42 + swing, 0.14 + stride);
+    this.viewModel.visible = true;
+    this.heldBlock.visible = blockId !== 0;
+    this.pickaxe.visible = blockId === 0;
+    if (blockId !== 0) {
+      const block = this.registry.get(blockId);
+      const material = this.heldBlock.material as THREE.MeshLambertMaterial;
+      material.color.set(block.color);
+    }
   }
 
   updatePlayerBody(position: { x: number; y: number; z: number }, yaw: number): void {
@@ -225,10 +231,11 @@ export class VoxelRenderer {
     this.scene.add(this.highlight);
     this.playerBody.visible = false;
     this.scene.add(this.playerBody);
-    this.heldItem.position.set(0, 0, 0);
-    this.heldItem.castShadow = false;
-    this.heldItem.receiveShadow = false;
-    this.viewModel.add(this.heldItem);
+    this.heldBlock.position.set(0, 0, 0);
+    this.heldBlock.castShadow = false;
+    this.heldBlock.receiveShadow = false;
+    this.createPickaxe();
+    this.viewModel.add(this.heldBlock, this.pickaxe);
     this.camera.add(this.viewModel);
     this.scene.add(this.camera);
     const hemi = new THREE.HemisphereLight(0xdff5ff, 0x38452d, 1.3);
@@ -244,6 +251,24 @@ export class VoxelRenderer {
     sun.shadow.camera.top = 120;
     sun.shadow.camera.bottom = -120;
     this.scene.add(sun);
+  }
+
+  private createPickaxe(): void {
+    const handleMaterial = new THREE.MeshLambertMaterial({ color: 0x79512f });
+    const headMaterial = new THREE.MeshLambertMaterial({ color: 0xb7c4ca });
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.56, 0.08), handleMaterial);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.09, 0.1), headMaterial);
+    const leftTip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.09), headMaterial);
+    const rightTip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.09), headMaterial);
+    handle.position.set(0.02, -0.12, 0);
+    handle.rotation.z = -0.56;
+    head.position.set(-0.05, 0.16, 0);
+    head.rotation.z = -0.22;
+    leftTip.position.set(-0.28, 0.12, 0);
+    leftTip.rotation.z = 0.38;
+    rightTip.position.set(0.18, 0.21, 0);
+    rightTip.rotation.z = -0.6;
+    this.pickaxe.add(handle, head, leftTip, rightTip);
   }
 }
 

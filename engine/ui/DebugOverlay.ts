@@ -22,13 +22,19 @@ export class DebugOverlay {
     parent.append(this.root);
   }
 
-  setToolbar(blocks: readonly string[], selected: number): void {
+  setToolbar(slots: readonly { label: string; count: number }[], selected: number): void {
     this.toolbar.replaceChildren(
-      ...blocks.map((block, index) => {
+      ...slots.map((slotData, index) => {
         const slot = document.createElement("div");
         slot.className = `slot${index === selected ? " active" : ""}`;
-        slot.textContent = block.slice(0, 4).toUpperCase();
-        slot.title = block;
+        const label = document.createElement("span");
+        label.className = "slot-label";
+        label.textContent = slotData.label ? slotData.label.slice(0, 4).toUpperCase() : "";
+        const count = document.createElement("span");
+        count.className = "slot-count";
+        count.textContent = slotData.count > 0 ? String(slotData.count) : "";
+        slot.append(label, count);
+        slot.title = slotData.label || "Empty";
         return slot;
       })
     );

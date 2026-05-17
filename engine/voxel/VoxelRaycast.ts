@@ -42,12 +42,12 @@ export function voxelRaycast(
       return { position: new Vec3(x, y, z), normal, block, distance };
     }
 
-    if (tMaxX < tMaxY && tMaxX < tMaxZ) {
+    if (tMaxX <= tMaxY && tMaxX <= tMaxZ) {
       x += stepX;
       distance = tMaxX;
       tMaxX += tDeltaX;
       normal = new Vec3(-stepX, 0, 0);
-    } else if (tMaxY < tMaxZ) {
+    } else if (tMaxY <= tMaxZ) {
       y += stepY;
       distance = tMaxY;
       tMaxY += tDeltaY;

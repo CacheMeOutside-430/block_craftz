@@ -3,9 +3,9 @@ import { ECS, registerEngineComponents } from "../engine/ecs";
 import { FluidEngine } from "../engine/fluids";
 import { TerrainGenerator } from "../engine/generation";
 import { LightEngine } from "../engine/lighting";
-import { Vec3 } from "../engine/math";
+import { AABB, Vec3 } from "../engine/math";
 import { AuthoritativeServer, InMemoryTransport } from "../engine/network";
-import { PhysicsWorld } from "../engine/physics";
+import { bodyBounds, PhysicsWorld, type PhysicsBody } from "../engine/physics";
 import { FrameProfiler } from "../engine/profiling";
 import { CameraController, VoxelRenderer } from "../engine/renderer";
 import { LocalStorageRegionStore, SaveSystem } from "../engine/serialization";
@@ -15,6 +15,15 @@ import { HotbarInventory } from "./items";
 import { ITEMS } from "./items/Items";
 import { registerGameBlocks } from "./blocks/registerBlocks";
 import type { Player } from "./entities/Player";
+import type { ItemDefinition } from "./items/Items";
+
+interface ItemDrop {
+  readonly entity: number;
+  readonly itemId: string;
+  readonly blockId: number;
+  readonly body: PhysicsBody;
+  age: number;
+}
 
 export class VoxelGame {
   private readonly blockSetup = registerGameBlocks();
@@ -33,13 +42,17 @@ export class VoxelGame {
   private readonly ecs = new ECS();
   private readonly components = registerEngineComponents(this.ecs);
   private readonly player: Player;
-  private readonly hotbar = ITEMS.filter((item) => item.block);
+  private readonly itemById = new Map(ITEMS.map((item) => [item.id, item]));
+  private readonly itemByBlock = new Map(ITEMS.filter((item) => item.block).map((item) => [item.block!, item]));
+  private readonly drops = new Map<number, ItemDrop>();
   private lastTime = 0;
   private accumulator = 0;
   private tick = 0;
   private meshQueue = 0;
-  private mineRequested = false;
-  private placeRequested = false;
+  private selectedTarget: ReturnType<World["raycast"]> = null;
+  private jumpBuffer = 0;
+  private coyoteTime = 0;
+  private interactionPulse = 0;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new VoxelRenderer(host, this.blockSetup.registry);
@@ -79,7 +92,7 @@ export class VoxelGame {
       spawn
     };
     this.overlay = new DebugOverlay(host);
-    this.overlay.setToolbar(this.hotbar.map((item) => item.name), this.controller.selectedSlot);
+    this.overlay.setToolbar(this.hotbarSlots(), this.controller.selectedSlot);
     this.fluids.register({ blockId: this.blockSetup.blocks.water, maxLevel: 8, horizontalDecay: 1, tickRate: 5 });
     this.fluids.register({ blockId: this.blockSetup.blocks.lava, maxLevel: 6, horizontalDecay: 2, tickRate: 12 });
     this.server.connect("local");
@@ -114,11 +127,27 @@ export class VoxelGame {
 
   private fixedUpdate(dt: number): void {
     this.tick++;
-    const move = this.controller.movementVector().scale(this.player.body.grounded ? 85 : 32);
-    if (this.controller.wantsJump()) {
-      this.physics.jump(this.player.body);
+    const wasGrounded = this.player.body.grounded;
+    if (wasGrounded) {
+      this.coyoteTime = 0.1;
+    } else {
+      this.coyoteTime = Math.max(0, this.coyoteTime - dt);
     }
+    if (this.controller.wantsJump()) {
+      this.jumpBuffer = 0.12;
+    } else {
+      this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+    }
+    if ((this.jumpBuffer > 0 || this.controller.isJumpHeld()) && (this.player.body.grounded || this.coyoteTime > 0)) {
+      this.player.body.grounded = true;
+      this.physics.jump(this.player.body);
+      this.jumpBuffer = 0;
+      this.coyoteTime = 0;
+    }
+    const move = this.controller.movementAcceleration(this.player.body.grounded);
     this.physics.step(this.player.body, this.world, dt, move);
+    this.updateDrops(dt);
+    this.syncPlayerComponents();
     this.fluids.step(this.world, this.tick, 64);
     if (this.tick % 15 === 0) {
       void this.world.chunks.streamAround(this.player.body.position, {
@@ -141,6 +170,10 @@ export class VoxelGame {
 
   private update(dt: number): void {
     this.profiler.begin("world");
+    this.player.inventory.select(this.controller.selectedSlot);
+    this.player.selectedBlock = this.selectedHotbarBlock();
+    this.updateCamera();
+    this.updateTargeting();
     this.handleBlockActions();
     this.lights.updateDirty(this.world, 3);
     this.profiler.end("world");
@@ -149,13 +182,16 @@ export class VoxelGame {
     this.meshQueue = this.renderer.sync(this.world, 3);
     this.profiler.end("meshing");
 
-    this.updateCamera();
+    const horizontalSpeed = Math.hypot(this.player.body.velocity.x, this.player.body.velocity.z);
+    const moveAmount = Math.min(1, horizontalSpeed / 4.3);
+    this.interactionPulse = Math.max(0, this.interactionPulse - dt * 5.5);
+    this.renderer.updateViewModel(this.player.selectedBlock, moveAmount, this.interactionPulse > 0);
+    this.renderer.updatePlayerBody(this.player.body.position, this.controller.rotationEuler().yaw);
     this.profiler.begin("render");
     this.renderer.render();
     this.profiler.end("render");
 
-    this.player.selectedBlock = this.selectedHotbarBlock();
-    this.overlay.setToolbar(this.hotbar.map((item) => item.name), this.controller.selectedSlot);
+    this.overlay.setToolbar(this.hotbarSlots(), this.controller.selectedSlot);
     this.overlay.update(
       this.debug.update(
         dt,
@@ -171,7 +207,7 @@ export class VoxelGame {
   }
 
   private updateCamera(): void {
-    const eye = this.player.body.position.clone().add(new Vec3(0, 0.62, 0));
+    const eye = this.player.body.position.clone().add(new Vec3(0, 0.72, 0));
     this.renderer.camera.position.set(eye.x, eye.y, eye.z);
     const { yaw, pitch } = this.controller.rotationEuler();
     this.renderer.camera.rotation.order = "YXZ";
@@ -181,32 +217,138 @@ export class VoxelGame {
   }
 
   private handleBlockActions(): void {
-    if (!this.mineRequested && !this.placeRequested) {
+    const mineRequested = this.controller.consumeMine();
+    const placeRequested = this.controller.consumePlace();
+    if (!mineRequested && !placeRequested) {
       return;
     }
+    const hit = this.selectedTarget;
+    if (hit) {
+      if (mineRequested && hit.block !== this.blockSetup.blocks.air) {
+        if (this.world.setBlock(hit.position.x, hit.position.y, hit.position.z, this.blockSetup.blocks.air)) {
+          this.spawnDrop(hit.block, hit.position.clone().add(new Vec3(0.5, 0.5, 0.5)), hit.normal);
+          this.interactionPulse = 1;
+        }
+      }
+      if (placeRequested && this.player.selectedBlock !== this.blockSetup.blocks.air && this.player.inventory.selectedSlot().count > 0) {
+        const place = hit.position.clone().add(hit.normal);
+        if (this.canPlaceAt(place) && this.world.setBlock(place.x, place.y, place.z, this.player.selectedBlock)) {
+          this.player.inventory.removeSelected(1);
+          this.interactionPulse = 1;
+        }
+      }
+    }
+  }
+
+  private selectedHotbarBlock(): number {
+    const item = this.player.inventory.selectedItem();
+    return item?.block ? this.blockSetup.registry.id(item.block) : this.blockSetup.blocks.air;
+  }
+
+  private updateTargeting(): void {
     const origin = new Vec3(
       this.renderer.camera.position.x,
       this.renderer.camera.position.y,
       this.renderer.camera.position.z
     );
-    const direction = this.controller.lookDirection();
-    const hit = this.world.raycast(origin, direction, 7);
-    if (hit) {
-      if (this.mineRequested) {
-        this.world.setBlock(hit.position.x, hit.position.y, hit.position.z, this.blockSetup.blocks.air);
-      }
-      if (this.placeRequested) {
-        const place = hit.position.clone().add(hit.normal);
-        this.world.setBlock(place.x, place.y, place.z, this.player.selectedBlock);
-      }
-    }
-    this.mineRequested = false;
-    this.placeRequested = false;
+    this.selectedTarget = this.world.raycast(origin, this.controller.lookDirection(), 5.2);
+    this.renderer.setTargetHighlight(this.selectedTarget?.position ?? null);
   }
 
-  private selectedHotbarBlock(): number {
-    const item = this.hotbar[((this.controller.selectedSlot % this.hotbar.length) + this.hotbar.length) % this.hotbar.length];
-    return item.block ? this.blockSetup.registry.id(item.block) : this.blockSetup.blocks.grass;
+  private canPlaceAt(position: Vec3): boolean {
+    if (this.world.getBlock(position.x, position.y, position.z) !== this.blockSetup.blocks.air) {
+      return false;
+    }
+    const blockBounds = new AABB(position.clone(), position.clone().add(new Vec3(1, 1, 1)));
+    return !blockBounds.intersects(bodyBounds(this.player.body));
+  }
+
+  private spawnDrop(blockId: number, position: Vec3, normal: Vec3): void {
+    const item = this.itemForBlock(blockId);
+    if (!item) {
+      return;
+    }
+    const body = this.physics.createBody(position, new Vec3(0.14, 0.14, 0.14));
+    body.friction = 4;
+    body.velocity = normal.clone().scale(1.4).add(new Vec3((Math.sin(this.tick) + 0.25) * 0.35, 2.4, Math.cos(this.tick) * 0.35));
+    const entity = this.ecs.create([
+      {
+        type: this.components.Transform,
+        value: { position: body.position.toArray(), rotation: [0, 0, 0, 1], scale: [0.28, 0.28, 0.28] }
+      },
+      {
+        type: this.components.Velocity,
+        value: { velocity: body.velocity.toArray() }
+      },
+      {
+        type: this.components.Renderable,
+        value: { mesh: "item_drop", material: item.id, visible: true }
+      }
+    ]);
+    this.drops.set(entity, { entity, itemId: item.id, blockId, body, age: 0 });
+  }
+
+  private updateDrops(dt: number): void {
+    for (const drop of [...this.drops.values()]) {
+      drop.age += dt;
+      const distance = drop.body.position.distance(this.player.body.position);
+      if (distance < 3) {
+        const pull = Vec3.sub(this.player.body.position, drop.body.position).normalize().scale((3 - distance) * 18);
+        this.physics.step(drop.body, this.world, dt, pull);
+      } else {
+        this.physics.step(drop.body, this.world, dt);
+      }
+      if (distance < 0.85 && this.player.inventory.add(drop.itemId, 1) === 0) {
+        this.removeDrop(drop);
+        continue;
+      }
+      if (drop.age > 180) {
+        this.removeDrop(drop);
+        continue;
+      }
+      this.renderer.upsertDrop(drop.entity, drop.body.position, drop.blockId, drop.age);
+      this.ecs.addComponent(drop.entity, this.components.Transform, {
+        position: drop.body.position.toArray(),
+        rotation: [0, 0, 0, 1] as [number, number, number, number],
+        scale: [0.28, 0.28, 0.28] as [number, number, number]
+      });
+      this.ecs.addComponent(drop.entity, this.components.Velocity, { velocity: drop.body.velocity.toArray() });
+    }
+  }
+
+  private removeDrop(drop: ItemDrop): void {
+    this.renderer.removeDrop(drop.entity);
+    this.ecs.destroy(drop.entity);
+    this.drops.delete(drop.entity);
+  }
+
+  private itemForBlock(blockId: number): ItemDefinition | undefined {
+    const block = this.blockSetup.registry.get(blockId);
+    return this.itemByBlock.get(block.name);
+  }
+
+  private hotbarSlots(): Array<{ label: string; count: number }> {
+    return this.player.inventory.slots.map((slot) => {
+      const item = slot.itemId ? this.itemById.get(slot.itemId) : undefined;
+      return { label: item?.name ?? "", count: slot.count };
+    });
+  }
+
+  private syncPlayerComponents(): void {
+    this.ecs.addComponent(this.player.entity, this.components.Transform, {
+      position: this.player.body.position.toArray(),
+      rotation: [0, 0, 0, 1] as [number, number, number, number],
+      scale: [1, 1, 1] as [number, number, number]
+    });
+    this.ecs.addComponent(this.player.entity, this.components.Velocity, { velocity: this.player.body.velocity.toArray() });
+    this.ecs.addComponent(this.player.entity, this.components.Collider, {
+      halfExtents: this.player.body.halfExtents.toArray(),
+      grounded: this.player.body.grounded
+    });
+    this.ecs.addComponent(this.player.entity, this.components.Inventory, {
+      slots: this.player.inventory.snapshot(),
+      selected: this.player.inventory.selected
+    });
   }
 
   private installWorldEvents(): void {
@@ -216,13 +358,6 @@ export class VoxelGame {
   }
 
   private installPointerActions(): void {
-    this.renderer.renderer.domElement.addEventListener("mousedown", (event) => {
-      if (event.button === 0) {
-        this.mineRequested = true;
-      } else if (event.button === 2) {
-        this.placeRequested = true;
-      }
-    });
     window.addEventListener("beforeunload", () => {
       for (const chunk of this.world.chunks.loadedChunks()) {
         void this.save.saveChunk(chunk);

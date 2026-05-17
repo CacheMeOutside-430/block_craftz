@@ -13,10 +13,7 @@ export class HotbarInventory {
     private readonly items: readonly ItemDefinition[],
     size = 9
   ) {
-    this.slots = Array.from({ length: size }, (_, index) => {
-      const item = items[index % items.length];
-      return { itemId: item.id, count: item.stackSize };
-    });
+    this.slots = Array.from({ length: size }, () => ({ itemId: null, count: 0 }));
   }
 
   select(index: number): void {

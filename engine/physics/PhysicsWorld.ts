@@ -73,8 +73,8 @@ export class SpatialHash<T> {
 }
 
 export class PhysicsWorld {
-  gravity = new Vec3(0, -28, 0);
-  maxVelocity = 80;
+  gravity = new Vec3(0, -24, 0);
+  maxVelocity = 55;
   stairHeight = 0.55;
 
   constructor(private readonly registry: VoxelRegistry) {}
@@ -86,7 +86,7 @@ export class PhysicsWorld {
       velocity: new Vec3(),
       halfExtents,
       grounded: false,
-      friction: 12,
+      friction: 8,
       restitution: 0
     };
   }
@@ -103,7 +103,7 @@ export class PhysicsWorld {
     this.move(body, sample, body.velocity.clone().scale(dt));
   }
 
-  jump(body: PhysicsBody, impulse = 9.2): void {
+  jump(body: PhysicsBody, impulse = 8.4): void {
     if (body.grounded) {
       body.velocity.y = impulse;
       body.grounded = false;

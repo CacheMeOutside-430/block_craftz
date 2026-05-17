@@ -55,7 +55,11 @@ export class CameraController {
   wantsJump(): boolean {
     const queued = this.jumpQueued;
     this.jumpQueued = false;
-    return queued || this.keys.has("Space");
+    return queued;
+  }
+
+  isJumpHeld(): boolean {
+    return this.keys.has("Space");
   }
 
   consumeMine(): boolean {
@@ -89,8 +93,12 @@ export class CameraController {
   }
 
   movementAcceleration(grounded: boolean): Vec3 {
-    const acceleration = grounded ? (this.isSprinting() ? 95 : 72) : 26;
+    const acceleration = grounded ? (this.isSprinting() ? 70 : 52) : 18;
     return this.movementVector().scale(acceleration);
+  }
+
+  isMoving(): boolean {
+    return this.movementVector().lengthSq() > 0;
   }
 
   lookDirection(): Vec3 {
