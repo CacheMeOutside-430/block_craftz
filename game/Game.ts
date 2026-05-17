@@ -1,4 +1,5 @@
 import { DebugState } from "../engine/debug";
+import { ECS, registerEngineComponents } from "../engine/ecs";
 import { FluidEngine } from "../engine/fluids";
 import { TerrainGenerator } from "../engine/generation";
 import { LightEngine } from "../engine/lighting";
@@ -10,6 +11,7 @@ import { CameraController, VoxelRenderer } from "../engine/renderer";
 import { LocalStorageRegionStore, SaveSystem } from "../engine/serialization";
 import { DebugOverlay } from "../engine/ui";
 import { World } from "../engine/world";
+import { HotbarInventory } from "./items";
 import { ITEMS } from "./items/Items";
 import { registerGameBlocks } from "./blocks/registerBlocks";
 import type { Player } from "./entities/Player";
@@ -28,6 +30,8 @@ export class VoxelGame {
   private readonly overlay: DebugOverlay;
   private readonly save = new SaveSystem(new LocalStorageRegionStore());
   private readonly server = new AuthoritativeServer(new InMemoryTransport());
+  private readonly ecs = new ECS();
+  private readonly components = registerEngineComponents(this.ecs);
   private readonly player: Player;
   private readonly hotbar = ITEMS.filter((item) => item.block);
   private lastTime = 0;
@@ -42,9 +46,35 @@ export class VoxelGame {
     this.controller = new CameraController(this.renderer.renderer.domElement);
     const spawnTerrain = this.generator.sampleTerrain(0, 0);
     const spawn = new Vec3(8, spawnTerrain.height + 6, 8);
+    const body = this.physics.createBody(spawn.clone());
+    const inventory = new HotbarInventory(ITEMS);
+    const entity = this.ecs.create([
+      {
+        type: this.components.Transform,
+        value: { position: body.position.toArray(), rotation: [0, 0, 0, 1], scale: [1, 1, 1] }
+      },
+      {
+        type: this.components.Velocity,
+        value: { velocity: body.velocity.toArray() }
+      },
+      {
+        type: this.components.Collider,
+        value: { halfExtents: body.halfExtents.toArray(), grounded: body.grounded }
+      },
+      {
+        type: this.components.Inventory,
+        value: { slots: inventory.snapshot(), selected: inventory.selected }
+      },
+      {
+        type: this.components.ChunkLoader,
+        value: { radius: 2 }
+      }
+    ]);
     this.player = {
       id: "local-player",
-      body: this.physics.createBody(spawn.clone()),
+      entity,
+      body,
+      inventory,
       selectedBlock: this.blockSetup.blocks.grass,
       spawn
     };

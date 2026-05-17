@@ -36,7 +36,7 @@ export class VoxelRenderer {
 
   constructor(
     private readonly host: HTMLElement,
-    registry: VoxelRegistry
+    private readonly registry: VoxelRegistry
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
